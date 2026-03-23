@@ -1,114 +1,200 @@
 import { useState, useCallback, useEffect } from "react";
 import { Task, TaskFilter, TaskStatus } from "@/types/task";
 
-const STORAGE_KEY = "task-manager-tasks";
+const API_BASE = "http://localhost:3001";
 
-function generateId(): string {
-  return crypto.randomUUID();
+async function apiGetTasks(): Promise<Task[]> {
+  const res = await fetch(`${API_BASE}/tasks`);
+  if (!res.ok) throw new Error("Failed to load tasks");
+
+  const data = await res.json();
+
+  return data.map((t: any) => ({
+    id: t.id,
+    title: t.title,
+    notes: t.notes ?? "",
+    due_date: t.dueDate
+      ? new Date(t.dueDate).toISOString().slice(0, 10)
+      : null,
+    status: t.status === "COMPLETED" ? "completed" : "active",
+    created_at: t.createdAt,
+    updated_at: t.updatedAt,
+  }));
 }
 
-function loadTasks(): Task[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Task[];
-    return parsed.filter(
-      (t) =>
-        t.id &&
-        t.title &&
-        (t.status === "active" || t.status === "completed")
-    );
-  } catch {
-    return [];
+async function apiCreateTask(
+  title: string,
+  notes: string,
+  due_date: string | null
+): Promise<Task> {
+  const res = await fetch(`${API_BASE}/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title,
+      notes,
+      dueDate: due_date,
+    }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || "Failed to create task");
   }
+
+  const t = await res.json();
+
+  return {
+    id: t.id,
+    title: t.title,
+    notes: t.notes ?? "",
+    due_date: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : null,
+    status: t.status === "COMPLETED" ? "completed" : "active",
+    created_at: t.createdAt,
+    updated_at: t.updatedAt,
+  };
 }
 
-function saveTasks(tasks: Task[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+async function apiUpdateTask(
+  id: string,
+  updates: Partial<Pick<Task, "title" | "notes" | "due_date">>,
+  currentStatus: TaskStatus
+): Promise<Task> {
+  const res = await fetch(`${API_BASE}/tasks/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: updates.title,
+      notes: updates.notes ?? "",
+      dueDate: updates.due_date ?? null,
+      status: currentStatus === "completed" ? "COMPLETED" : "ACTIVE",
+    }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || "Failed to update task");
+  }
+
+  const t = await res.json();
+
+  return {
+    id: t.id,
+    title: t.title,
+    notes: t.notes ?? "",
+    due_date: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : null,
+    status: t.status === "COMPLETED" ? "completed" : "active",
+    created_at: t.createdAt,
+    updated_at: t.updatedAt,
+  };
+}
+
+async function apiToggleStatus(task: Task): Promise<Task> {
+  const endpoint =
+    task.status === "active"
+      ? `${API_BASE}/tasks/${task.id}/complete`
+      : `${API_BASE}/tasks/${task.id}/reopen`;
+
+  const res = await fetch(endpoint, {
+    method: "PATCH",
+  });
+
+  if (!res.ok) throw new Error("Failed to update task status");
+
+  const t = await res.json();
+
+  return {
+    id: t.id,
+    title: t.title,
+    notes: t.notes ?? "",
+    due_date: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : null,
+    status: t.status === "COMPLETED" ? "completed" : "active",
+    created_at: t.createdAt,
+    updated_at: t.updatedAt,
+  };
+}
+
+async function apiDeleteTask(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/tasks/${id}`, {
+    method: "DELETE",
+  });
+
+  if (!res.ok) throw new Error("Failed to delete task");
 }
 
 function sortTasks(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => {
-    // Tasks with due dates before tasks without
     if (a.due_date && !b.due_date) return -1;
     if (!a.due_date && b.due_date) return 1;
-    // Earlier due date first
+
     if (a.due_date && b.due_date) {
       const cmp = a.due_date.localeCompare(b.due_date);
       if (cmp !== 0) return cmp;
     }
-    // More recently updated first
+
     return b.updated_at.localeCompare(a.updated_at);
   });
 }
 
 export function useTasks() {
-  const [tasks, setTasks] = useState<Task[]>(loadTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [filter, setFilter] = useState<TaskFilter>("active");
 
   useEffect(() => {
-    saveTasks(tasks);
-  }, [tasks]);
+    apiGetTasks()
+      .then(setTasks)
+      .catch((error) => {
+        console.error("Failed to load tasks:", error);
+        setTasks([]);
+      });
+  }, []);
 
   const createTask = useCallback(
-    (title: string, notes: string, due_date: string | null): Task => {
-      const now = new Date().toISOString();
-      const task: Task = {
-        id: generateId(),
-        title: title.trim(),
-        notes,
-        due_date,
-        status: "active",
-        created_at: now,
-        updated_at: now,
-      };
-      setTasks((prev) => [...prev, task]);
-      return task;
+    async (title: string, notes: string, due_date: string | null): Promise<Task> => {
+      const created = await apiCreateTask(title, notes, due_date);
+      setTasks((prev) => [...prev, created]);
+      return created;
     },
     []
   );
 
   const updateTask = useCallback(
-    (id: string, updates: Partial<Pick<Task, "title" | "notes" | "due_date">>) => {
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === id
-            ? { ...t, ...updates, title: updates.title !== undefined ? updates.title.trim() : t.title, updated_at: new Date().toISOString() }
-            : t
-        )
-      );
+    async (id: string, updates: Partial<Pick<Task, "title" | "notes" | "due_date">>) => {
+      const existing = tasks.find((t) => t.id === id);
+      if (!existing) return;
+
+      const updated = await apiUpdateTask(id, updates, existing.status);
+
+      setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
     },
-    []
+    [tasks]
   );
 
-  const toggleStatus = useCallback((id: string) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              status: (t.status === "active" ? "completed" : "active") as TaskStatus,
-              updated_at: new Date().toISOString(),
-            }
-          : t
-      )
-    );
-  }, []);
+  const toggleStatus = useCallback(
+    async (id: string) => {
+      const existing = tasks.find((t) => t.id === id);
+      if (!existing) return;
 
-  const deleteTask = useCallback((id: string) => {
+      const updated = await apiToggleStatus(existing);
+
+      setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
+    },
+    [tasks]
+  );
+
+  const deleteTask = useCallback(async (id: string) => {
+    await apiDeleteTask(id);
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const filteredTasks = (() => {
-    let result: Task[];
     if (filter === "all") {
       const active = sortTasks(tasks.filter((t) => t.status === "active"));
       const completed = sortTasks(tasks.filter((t) => t.status === "completed"));
-      result = [...active, ...completed];
-    } else {
-      result = sortTasks(tasks.filter((t) => t.status === filter));
+      return [...active, ...completed];
     }
-    return result;
+
+    return sortTasks(tasks.filter((t) => t.status === filter));
   })();
 
   return {

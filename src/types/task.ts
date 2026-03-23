@@ -1,13 +1,12 @@
 export type TaskStatus = "active" | "completed";
+export type TaskFilter = "active" | "completed" | "all";
 
 export interface Task {
   id: string;
   title: string;
   notes: string;
-  due_date: string | null; // YYYY-MM-DD
+  due_date: string | null;
   status: TaskStatus;
-  created_at: string; // ISO datetime
-  updated_at: string; // ISO datetime
+  created_at: string;
+  updated_at: string;
 }
-
-export type TaskFilter = "active" | "completed" | "all";
