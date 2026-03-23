@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
+    "dev": "NODE_OPTIONS='--loader ts-node/esm' nodemon --watch src --ext ts --exec node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:prod": "npx prisma db push && node dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },

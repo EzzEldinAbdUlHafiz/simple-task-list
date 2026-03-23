@@ -53,6 +53,10 @@ function validateTaskInput(body: any) {
   };
 }
 
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 app.get("/tasks", async (_req, res) => {
   try {
     const tasks = await prisma.task.findMany({
